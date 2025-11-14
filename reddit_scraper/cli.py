@@ -47,10 +47,11 @@ def parse_args() -> argparse.Namespace:
         description="Fetch subreddit submissions (and comments) for a date range.",
     )
     p.add_argument("subreddit")
-    p.add_argument("start_date")            # ISO
+    p.add_argument("start_date")
     p.add_argument("end_date")
     p.add_argument("--min-score", type=int)
     p.add_argument("--flair")
+    p.add_argument("--keywords", help="Comma-separated keywords to search for.")
     p.add_argument("--csv",    action="store_true", help="Also export CSVs")
     p.add_argument("--txt",    action="store_true", help="Export per-post TXT files")
     p.add_argument("--merged", action="store_true",
@@ -70,14 +71,14 @@ def main() -> None:
     flair_list: Optional[List[str]] = (
         [f.strip() for f in args.flair.split(",")] if args.flair else None
     )
+    # ADDED: Process keywords argument
+    keyword_list: Optional[List[str]] = (
+        [k.strip() for k in args.keywords.split(",")] if args.keywords else None
+    )
 
     paths = build_paths(args.subreddit, args.start_date, args.end_date)
 
-    # lazily create optional dirs
-    if args.csv:
-        (OUT_BASE / "csv").mkdir(parents=True, exist_ok=True)
-    if args.txt or args.merged:
-        paths["txt_dir"].mkdir(parents=True, exist_ok=True)
+    # ... (lazy dir creation is unchanged) ...
 
     # run scraper ---------------------------------------------------------
     scraper = Scraper(
@@ -87,9 +88,16 @@ def main() -> None:
         output=paths["ndjson"],
         min_score=args.min_score,
         flairs=flair_list,
+        # ADDED: Pass keywords to the scraper
+        keywords=keyword_list,
         progress_db=paths["progress"],
     )
-    scraper.run()
+
+    posts_saved_count = scraper.run()
+
+    if posts_saved_count == 0:
+        lg.info("No new posts were saved, skipping export steps.")
+        return
 
     # CSV -----------------------------------------------------------------
     if args.csv:

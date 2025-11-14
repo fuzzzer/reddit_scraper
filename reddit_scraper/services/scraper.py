@@ -28,6 +28,7 @@ class Scraper:
         output: str | Path = "output.ndjson",
         min_score: Optional[int] = None,
         flairs: Optional[List[str]] = None,
+        keywords: Optional[List[str]] = None,
         progress_db: str | Path = "progress.sqlite",
     ) -> None:
         self.subreddit = subreddit
@@ -35,6 +36,7 @@ class Scraper:
         self.end_date = end_date
         self.min_score = min_score
         self.flairs = flairs
+        self.keywords = keywords
         self.output = Path(output)
 
         self.reddit = RedditClient()
@@ -43,20 +45,34 @@ class Scraper:
         self._setup_signals()
 
     # ----------------------------- main loop --------------------------- #
-    def run(self) -> None:
+    def run(self) -> int:
         self.logger.info(
             "Starting scrape of r/%s from %s to %s", self.subreddit, self.start_date, self.end_date
         )
 
-        bar = tqdm(unit="posts", desc="Downloaded")
-        try:
-            for item in self.reddit.list_submission_ids(
+        if self.keywords:
+            self.logger.info("Searching with keywords: %s", self.keywords)
+            # Reddit search API is not precise with dates, using 'year' is a good default.
+            submission_iterator = self.reddit.search_submissions(
+                self.subreddit,
+                keywords=self.keywords,
+                time_filter="year",
+                min_score=self.min_score,
+                flairs=self.flairs,
+            )
+        else:
+            self.logger.info("Listing recent posts from /new")
+            submission_iterator = self.reddit.list_submission_ids(
                 self.subreddit,
                 self.start_date,
                 self.end_date,
                 min_score=self.min_score,
                 flairs=self.flairs,
-            ):
+            )
+
+        bar = tqdm(unit="posts", desc="Downloaded")
+        try:
+            for item in submission_iterator:
                 sid = item["id"]
                 if self.progress.is_done(sid):
                     self.logger.debug("Skip already-scraped id=%s", sid)
@@ -72,6 +88,7 @@ class Scraper:
                 self.logger.debug("Saved id=%s  (%d comments)", submission.id, len(submission.comments))
 
             self.logger.info("Scraping finished – %d new posts saved", bar.n)
+            return bar.n
         finally:
             bar.close()
             self.progress.close()

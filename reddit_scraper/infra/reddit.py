@@ -24,7 +24,7 @@ class RedditClient:
         )
         self.ratelimit_sleep = ratelimit_sleep
 
-    # ---------- 1) list IDs inside [start_date, end_date] --------------- #
+    # ---------- 1a) list IDs inside [start_date, end_date] --------------- #
     def list_submission_ids(
         self,
         subreddit: str,
@@ -53,6 +53,37 @@ class RedditClient:
             yield {
                 "id": sub.id,
                 "created_utc": ts,
+                "score": sub.score,
+                "link_flair_text": sub.link_flair_text,
+            }
+
+    # ---------- 1b) NEW: search for submissions by keyword -------------- #
+    def search_submissions(
+        self,
+        subreddit: str,
+        keywords: List[str],
+        time_filter: str = "all",
+        *,
+        min_score: Optional[int] = None,
+        flairs: Optional[List[str]] = None,
+    ) -> Iterator[Dict]:
+        """
+        Search for submissions using keywords.
+        Note: Reddit's search uses `time_filter` ('year', 'month', etc.)
+        instead of a precise date range.
+        """
+        query = " OR ".join(f'"{k}"' for k in keywords)
+        flair_set = {f.lower() for f in flairs} if flairs else None
+        sub_ref = self.reddit.subreddit(subreddit)
+
+        for sub in sub_ref.search(query, sort="new", time_filter=time_filter):
+            if min_score and sub.score < min_score:
+                continue
+            if flair_set and (sub.link_flair_text or "").lower() not in flair_set:
+                continue
+            yield {
+                "id": sub.id,
+                "created_utc": int(sub.created_utc),
                 "score": sub.score,
                 "link_flair_text": sub.link_flair_text,
             }
